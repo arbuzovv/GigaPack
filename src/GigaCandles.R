@@ -158,17 +158,7 @@ names(export_gigacandles)[1] = 'date'
 setcolorder(export_gigacandles, c('date','symbol','field','value'))
 export_gigacandles[is.na(value),value:=0]  
 
-path_ch = fread('https://storage.yandexcloud.net/alpha-data/dict/path_to_clickhouse.txt')
-con = dbConnect(
-  ClickHouseHTTP(),
-  host = path_ch$value[1],
-  port = as.numeric(path_ch$value[2]),
-  user = path_ch$value[3],
-  password = path_ch$value[4],
-  https = TRUE)
-
 dbAppendTable(con, "algopack_giga", export_gigacandles)
-
 
 ## median ##
 gigacandles = super_candle[, lapply(.SD, median),by='tradedate',.SDcols = calc_columns]
