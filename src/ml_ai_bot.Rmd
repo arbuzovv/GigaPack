@@ -1,0 +1,176 @@
+---
+title: "Исследование эффекта переобучения стратегии машинного обучения на основе данных технического анализа и AlgoPack"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Введение
+
+В данном исследовании рассматривается разработка стратегии машинного обучения для торговли на финансовых рынках. Мы используем данные технического анализа и Данных AlgoPack для обучения модели случайного леса и оценки ее эффективности на реальных и фейковых данных.
+
+# Библиотеки и данные
+
+Исследование использует следующие библиотеки R: rusquant, caret, nnet, e1071, caretEnsemble, PerformanceAnalytics. Для анализа данных используется набор символов, включая 'ROSN', 'SBER', 'GAZP', 'LKOH', 'AFLT'. Технические и свечные данные загружаются с использованием функции getSymbols.Gigapack из пакета rusquant.
+
+```{r}
+
+library(rusquant)
+library(caret)
+library(nnet)
+library(e1071)
+library(caretEnsemble)
+library(PerformanceAnalytics)
+
+tech_fields = getSymbolList('gigapack',type = 'tech')
+candles_fields = getSymbolList('gigapack',type = 'candles')
+universe = c('ROSN','SBER','GAZP','LKOH','AFLT')
+
+```
+
+
+# Подготовка данных
+
+Для конкретного символа из выбранного набора мы загружаем реальные технические и микроструктурные данные. 
+Делим всю выборку на train (до января 2023), test (после января 2023)
+
+
+
+```{r}
+
+symbol = universe[3]
+
+###### get real data ##########
+technical_features = getSymbols.Gigapack(symbol, type = 'tech') #technical indicators
+all_features = technical_features[,c('symbol','date','close','EMA_EXP_RSI_28','chaikin_mfi_10','atr_28')]
+for(i in c(41,145,209)) all_features = merge(all_features, getSymbols.Gigapack(symbol,field = candles_fields[i],type = 'candles'),by=c('date','symbol'))
+all_features[,next_ret:=shift(close/shift(close,1)-1,-1),by='symbol']
+dt_train = all_features[date<'2023-01-01',]
+dt_test = all_features[date>'2023-01-01',]
+
+```
+
+Затем создается фейковый набор данных с аналогичными статистическими характеристиками, но случайно сгенерированный. Обучающие и тестовые наборы формируются для реальных данных, а также для каждого из 10 фейковых наборов.
+
+```{r}
+
+# technical data
+for(i in 1:10)
+{
+  alternative_ts = getSymbols.Gigapack(symbol, type = 'tech',fake = T)
+  alternative_ts$sim = i
+  if(i == 1) alternative_data = alternative_ts
+  if(i != 1) alternative_data = rbind(alternative_data,alternative_ts)
+}
+all_features_fake = alternative_data[,c('symbol','date','close','EMA_EXP_RSI_28','chaikin_mfi_10','atr_28','sim')]
+
+# add algopack data
+for(i in c(41,145,209)) 
+{
+  algopack_data_fake = getSymbols.Gigapack(symbol,field = candles_fields[i],type = 'candles',fake = T,reps = 10)
+  all_features_fake = merge(all_features_fake,algopack_data_fake,by=c('date','symbol','sim'))
+}
+all_features_fake[,next_ret:=shift(close/shift(close,1)-1,-1),by='symbol,sim']
+dt_train_fake = all_features_fake[date<'2023-01-01',]
+
+
+```
+
+# Обучение модели
+
+Модель случайного леса обучается на реальных данных с использованием функции train из пакета caret. Обученная модель затем используется для прогнозирования величины следующего дохода (next_ret). Стратегия торговли (перевертыш) определяется на основе прогнозов модели (если положительная доходность то покупка, иначе продажа): покупка (1), или продажа (-1).
+
+```{r}
+### fit  train ##
+fitControl <- trainControl(method="repeatedcv", number=2, repeats=2)
+rf_model <- train(next_ret ~ .,
+                  data = dt_train[,-c('date','symbol','close')],
+                  method = "rf",
+                  trControl=fitControl)
+### train ##
+rf_forecast <- predict(rf_model, dt_train)
+dt_train$predict = rf_forecast
+dt_train$position = 0
+dt_train[predict>0,]$position=1
+dt_train[predict<0,]$position=-1
+
+```
+
+
+# Оценка стратегии на реальных данных
+
+На реальных данных рассчитывается портфель стратегии, включая расчет прибыли и учет комиссий. Проводится анализ производительности стратегии с использованием метрик, таких как Sharpe Ratio и Calmar Ratio.
+
+```{r}
+#add commisions
+dt_train$pnl = dt_train$position * dt_train$next_ret
+dt_train[,I_trade:= c(NA,diff(position))]
+dt_train$pnl = dt_train$pnl - (0.1/100)*abs(dt_train$I_trade)
+
+train_pnl = xts(dt_train$pnl,order.by = as.Date(dt_train$date))
+charts.PerformanceSummary(train_pnl['2020/'],geometric = T)
+SharpeRatio.annualized(train_pnl['2020/'])
+CalmarRatio(train_pnl['2020/'])
+#names(portfolio_opt) = 'alpha_portfolio'
+```
+
+
+# Оценка стратегии на альтернативных данных
+
+Для каждого из 10 фейковых наборов данных применяется обученная модель, и анализируется прибыльность каждой стратегии. Плотность распределения прибыли по всем фейковым стратегиям сравнивается с реальной стратегией.
+
+
+```{r}
+
+### fake calc strategy #
+dt_train_fake$position = 0
+dt_train_fake$predict = 0
+dt_train_fake$pnl = 0
+dt_train_fake$I_trade = 0
+for(j in 1:10)
+{
+  rf_forecast <- predict(rf_model, dt_train_fake[sim==j])
+  dt_train_fake[sim==j]$predict = rf_forecast
+  dt_train_fake[sim==j & predict>0,]$position=1
+  dt_train_fake[sim==j & predict<0,]$position=-1
+  dt_train_fake$pnl = dt_train_fake$position * dt_train_fake$next_ret
+  dt_train_fake[,I_trade:= c(NA,diff(position)),by='symbol,sim']
+}
+dt_train_fake$pnl = dt_train_fake$pnl - (0.1/100)*abs(dt_train_fake$I_trade)
+
+mean(dt_train_fake[,sum(pnl,na.rm = T),by = sim]$V1)
+fake_strats = dt_train_fake[,sum(pnl,na.rm = T),by = sim]
+```
+
+# Сравнение реальных и альтернативных данных
+
+Для каждого из 10 фейковых наборов данных применяется обученная модель, и анализируется прибыльность каждой стратегии. Плотность распределения прибыли по всем фейковым стратегиям сравнивается с реальной стратегией.
+Тра
+
+```{r}
+library(ggplot2)
+ggplot(fake_strats, aes(V1*100,fill='blue',alpha=.2)) + geom_density() + xlim(0, 1500)+ 
+     geom_vline(xintercept = 100*sum(dt_train$pnl,na.rm = T))+ labs(x = "Sum of PnL, %, 2020-01-01 - 2023-01-01")
+```
+
+# Тестирование стратегии на out-of-sample
+
+Наконец, обученная модель применяется к новым данным для тестирования устойчивости стратегии к изменениям на рынке. Проводится анализ эффективности и сравнение с результатами на реальных данных.
+
+```{r}
+### test ##
+rf_forecast <- predict(rf_model, dt_test)
+dt_test$predict = rf_forecast
+dt_test$position = 0
+dt_test[predict>0,]$position=1
+dt_test[predict<0,]$position=-1
+dt_test$pnl = dt_test$position * dt_test$next_ret
+dt_test[,I_trade:= c(NA,diff(position))]
+dt_test$pnl = dt_test$pnl - (0.1/100)*abs(dt_test$I_trade)
+test_pnl = xts(dt_test$pnl,order.by = as.Date(dt_test$date))
+charts.PerformanceSummary(test_pnl['2020/'],geometric = T)
+SharpeRatio.annualized(test_pnl['2020/'])
+CalmarRatio(test_pnl['2020/'])
+```
+
+

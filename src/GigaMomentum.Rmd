@@ -1,0 +1,365 @@
+---
+title: 'Стратегия Giga Momentum '
+output:
+  html_document:
+    df_print: paged
+  extra_dependencies: ["utf8={inputenc}"]
+  latex_engine: lualatex
+  pdf_document: default
+---
+
+# Введение
+
+Исследование эффекта моментума на фондовых рынках является одним из ключевых направлений в области финансов и инвестиций. За десятилетия его существования этот феномен привлек внимание многих исследователей, а их работы помогли сформировать базовые представления о поведении цен на финансовых рынках.
+
+Основными исследователями эффекта моментума принято считать следующие работы:
+
+ - [Jegadeesh, Titman Returns to Buying Winners and Selling Losers: Implications for Stock Market Efficiency (1993)](https://www.jstor.org/stable/2328882) в котором они обнаружили сильный эффект моментума на краткосрочных горизонтах. 
+
+ -  [Carhart, On Persistence in Mutual Fund Performance (1997)](https://www.jstor.org/stable/2329556) добавил в модель Фама-Френча дополнительный фактор - моментума, который позволял значительно улучшить объяснение аномальных доходностей некоторых акций.
+
+Эффект моментума в инвестиционной стратегии представляет собой явление, при котором активы, проявившие сильную доходность в 
+прошлом, имеют тенденцию продолжить свой положительный тренд в будущем. 
+
+Эффект моментума остается одним из важных явлений на финансовых рынках, и стратегии, основанные на этом эффекте, привлекают внимание инвесторов т.к. он имеет свои преимущества (но и естестевенно ограничения).
+
+#### Преимущества:
+ - Потенциал для высокой доходности в условиях устойчивости трендов на рынке.
+ - Динамическое ребалансирование позволяет быстро реагировать на изменения в моменте активов.
+
+#### Ограничения:
+ - Низкая эффективность в периодах рыночной неопределенности.
+ - Риск возможного оверфитинга, особенно если не проводится тщательное тестирование стратегии на различных рыночных условиях.
+ - Риск ликвидности, связанный с эффективным исполнением стратегии 
+
+## 1. Учет длинной памяти микроструктуры в стратегии Моментума
+
+В современном финансовом мире стратегии моментума становятся все более популярными, особенно при использовании микроструктурных данных. Однако, помимо традиционного технического анализа, учет долгосрочной памяти в микроструктурных характеристиках рынка приобретает важность. Для более глубокого понимания этой связи, мы обратим внимание на ключевые факты, выявленные в исследованиях:
+
+- [Lillo,  Farmer The Long Memory of the Efficient Market (2003).](https://arxiv.org/pdf/cond-mat/0311053.pdf)
+ - [Cont, Kukanov, Stoikov  The price impact of order book events (2011)](https://arxiv.org/pdf/1011.6402.pdf)
+  - [Arbuzov, Frolova  Market Liquidity Measurement and Econometric Modeling (2012).](https://link.springer.com/chapter/10.1007/978-3-642-27931-7_5)
+
+
+
+В своей статье ставшей уже классичесокй Лилло и Фармер  утверджают, что долгосрочная память может быть ключевым фактором, противоречащим идеям эффективного рынка, а поток заявок на рынке является не пуассоновским, а процессом имеющим длинную память.
+Одним из исследуемых ими стилизованных фактов является длинная память в потоке заявок в том, числе и рыночных -  таким образом и если на рынке присутствует дисбаланс, он также будет иметь длинную память. Несмотря на определенную разницу, что в исходной работе дисбаланс считается по количеству сделок, в данных AlgoPack тоже рассчитан дисбаланс по объему сделок. Далее мы построим график, который бы показывал, что исследование зарубежных авторов применимо и к отечественному рынку.
+
+
+```{r eval=FALSE}
+# install.packages(ggplot2)
+# install.packages(scales)
+# devtools::install_github("arbuzovv/rusquant")
+
+library(rusquant)
+library(ggplot2)
+library(scales)
+tradestat_data = getSymbols.Algopack('GAZP',from = '2023-11-11',to='2023-11-24',type='tradestats')
+
+acf_data = acf(as.numeric(tradestat_data$disb),lag.max = 1000,plot = F)
+
+pl = data.table(acf_data$acf[acf_data$acf>0],acf_data$lag[acf_data$acf>0])
+names(pl) = c('acf','lag')
+
+ggplot(data = pl, aes(y = acf,x=lag))+
+  geom_point()+ylim(0.001,1)+
+ scale_x_log10("lag",
+        breaks = trans_breaks("log10", function(x) 10^x),
+        labels = trans_format("log10", math_format(10^.x))) + 
+  scale_y_log10("acf",
+        breaks = trans_breaks("log10", function(x) 10^x),
+        labels = trans_format("log10", math_format(10^.x))) + geom_smooth(method = lm, se = F)
+
+```
+
+
+ Полученные результаты подтверждают долгосрочную память, в дисбалансе. Кроме того, следует заметить, что в следующем исследовании Стоикова утверждается, что дисбаланс в заявках и дисбаланс в сделках связан положительно с будущим приростом цен, при этом авторы приходят к выводу, что поток дисбаланс в потоках заявок сильнее определяет будущие движения цен.
+ 
+Кроме того, того стоит отметь исследование Арбузова и Фроловой в которой исследуются различные метрики ликвидности, в том числе и дисбаланс в сжатости книги заявок и выявляет положительная связь с будущим приростом цен.
+
+*Основные выводы академической литературы:*
+
+ - различные микроструктурные характеристики связанные с потоком заявок имеют длинную память
+ - дисбаланс в заявках, сделках и прочих характеристиках ликвидности связанны будущим приростом цены
+ 
+  
+Стратегии моментума, с учетом этих исследования, приобретают новый уровень глубины и точности, включая в себя учет длинной памяти в этих характеристиках. Длинная память, или долгосрочная зависимость, в контексте микроструктурных данных означает сохранение во времени особенностей, которые влияют на динамику цен и торговлю.
+
+ 
+ Таким образом мы разрабатываем моментум стратегию, которые представляем из себя связь между 2 хорошо изученными эффектами и объединяем это в стратегию, которую назвали **GigaMomentum**
+
+
+## 2. Построение GigaMomentum стратегии
+
+В данной главе мы опишем шаг за шагом этапы количественного исследования моментум эффекта с учетом дисбаланса в торгах
+
+### 2.1 Загрузка необходимых справочников
+Подключим необходимые библиотеки (если их нет - предварительно необходимо установить) и загрузим необходимые справочники информации.
+
+```{r eval=FALSE}
+library(rusquant)
+library(PerformanceAnalytics)
+library(data.table)
+library(caret)
+
+tech_fields = getSymbolList('gigapack',type = 'tech')
+candles_fields = getSymbolList('gigapack',type = 'candles')
+moex_stock_universe = getSymbolList(src='moex')
+```
+
+### 2.2 Формирование списка ликвидных акций
+
+Для построения успешной торговой стратегии важно выбрать активы с высокой ликвидностью, поскольку это обеспечивает легкость входа и выхода с позиций без значительного влияния на цену актива. В данном исследовании ликвидность измеряется по разнице между лучшими ценами покупки и продажи, выраженной в виде спреда.
+
+```{r eval=FALSE}
+library(rusquant)
+library(PerformanceAnalytics)
+library(data.table)
+library(caret)
+
+tech_fields = getSymbolList('gigapack',type = 'tech')
+candles_fields = getSymbolList('gigapack',type = 'candles')
+moex_stock_universe = getSymbolList(src='moex')
+```
+
+
+### 2.3 Отбор ликвидных акций
+
+Сначала формируется список всех акций из доступных данных, и для каждой акции вычисляется значение спреда между лучшими ценами на покупку и продажу (bid-ask spread). Затем происходит отбор акций, у которых значение спреда менее 10 б.п.. Этот критерий позволяет выделить активы с относительно высокой ликвидностью, что является важным аспектом для успешного внедрения стратегии моментума.
+
+Таким образом, отбор ликвидных акций способствует формированию портфеля, включающего активы, которые обладают способностью быстро реагировать на изменения рыночных условий, что в свою очередь улучшает общую доходность стратегии.
+
+```{r eval=FALSE}
+liquidity_universe = getSymbols.Gigapack(paste(moex_stock_universe$SECID,collapse = ','),date='2020-01-03',field = 'spread_bbo.q80',type = 'candles')
+liquidity_universe = liquidity_universe[spread_bbo.q80<10]
+universe = liquidity_universe$symbol
+```
+
+
+### 2.4 Получение данных из технических индикаторов и микроструктурных характеристик
+
+Для построения торговой стратегии необходимо объединить данные из различных источников, таких как технические индикаторы и микроструктурные характеристики. В данном исследовании используются данные из  из AlgoPack.
+
+Технические индикаторы: В качестве индикатора оценивающего эффект моментума используется стохастический осциллятор или коротко [стохастик](https://www.fmlabs.com/reference/default.htm?url=StochasticOscillator.htm) (берется классически сет параметров 14,3,3 и сигнальная линия в качестве источника сигнала)
+Микроструктурные характеристики: Получаются данные из AlgoPack, в данном случае, используется дисбаланс в книге заявок (imbalance_vol.median), хотя можно было бы выбрать и дисбаланс в совершенных сделках - здесь мы выбор конкретной метрики дисбаланса оставляем за читателем.
+
+```{r eval=FALSE}
+# get data from technical indicators
+trading_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'stoch,close', type = 'tech')
+# get data from microstructure indicators
+algo_pack_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'imbalance_vol.median',type = 'candles')
+trading_data = merge(trading_data,algo_pack_data,by = c('date','symbol'))
+```
+
+
+### 2.5 Ранжирование и формирование портфеля
+
+После объединения данных происходит ранжирование акций по двум критериям: уровню дисбаланса в книге заявок (imbalance_vol.median) и значению стохастического осциллятора (stoch) для Giga Momentuma и только по стохастику для Pure Momentum. Затем рассчитывается общий ранг для каждой акции в каждый день.
+
+На основе общего ранга выбираются топ-N акций для формирования портфеля. Далее, рассчитывается следующая дневная доходность (next_ret) и создается торговый портфель, включающий информацию о выбранных акциях, их доходности и позициях.
+
+```{r eval=FALSE}
+# merge data
+trading_data[,next_ret:=shift(close/shift(close,1)-1,-1),by='symbol']
+trading_data[,imbalance_rank:=frank(imbalance_vol.median),by='date']
+trading_data[,indicator_rank:=frank(stoch),by='date']
+trading_data[,total_rank:=imbalance_rank+indicator_rank,by='date']
+trading_data = na.omit(trading_data)
+```
+
+### 2.6 Оценка Pure Momentum
+
+Для оценки торговой стратегии без учета микроструктурных эффектов (которую мы назвали Pure Momentum) выберем количество позиций которое мы будем удерживать каждый день в выбранных акциях. В данной стратегии мы выбираем 4 лучших акции с наибольшим скором (таким образом каждой позиции у нас будет по 25% в портфеле, что соответсвует достаточному уровню диверсификации для минимизации идисинкратических рисков). Кроме того мы учитываем и торговые комисии и принимаем их 5 б.п., что соответсвует средним издержкам на хорошо ликвидных акциях выбранных нами. 
+
+```{r eval=FALSE}
+# merge data
+trading_data = trading_data[order(date,-indicator_rank)]
+number_op_positions = 4 # choose number of position 
+#pnl = trading_data[,mean(next_ret[1:number_op_positions]),by=date]
+trading_portfolio = trading_data[,list(symbol = symbol[1:number_op_positions],
+                   pnl = next_ret[1:number_op_positions]/number_op_positions,
+                   position = 1,
+                   total_rank = total_rank[1:number_op_positions]),by=date]
+
+# add cost for each day rebalancing
+full_date_symbol = expand.grid(date = unique(trading_portfolio$date),
+            symbol = unique(trading_portfolio$symbol))
+
+
+trading_portfolio = merge(trading_portfolio,full_date_symbol,all = T,by=c('date','symbol'))
+trading_portfolio[is.na(position),position:=0]
+trading_portfolio[is.na(pnl),pnl:=0]
+trading_portfolio[,I_trade:= c(NA,diff(position)),by=symbol]
+trading_portfolio[is.na(I_trade),I_trade:=0]
+trading_portfolio$pnl = trading_portfolio$pnl - (0.05/100)*abs(trading_portfolio$I_trade)/number_op_positions
+ts_portf =  trading_portfolio[,sum(pnl),by='date']
+
+train_pnl = na.omit(xts(ts_portf$V1,order.by = as.Date(ts_portf$date)))
+charts.PerformanceSummary(train_pnl['2020/2022'],geometric = T)
+
+
+my_sharpe =  SharpeRatio.annualized(train_pnl['2020/2022'])
+my_calmar =  CalmarRatio(train_pnl['2020/2022'])
+my_return = Return.annualized(train_pnl['2020/2022'])
+my_sharpe
+my_calmar
+my_return
+
+```
+
+
+### 2.7 Оценка Giga Momentum
+
+Для оценки торговой стратегии выберем количество позиций которое мы будем удерживать каждый день в выбранных акциях. В данной стратегии мы выбираем 4 лучших акции с наибольшим скором (таким образом каждой позиции у нас будет по 25% в портфеле, что соответсвует достаточному уровню диверсификации для минимизации идисинкратических рисков). Кроме того мы учитываем и торговые комисии и принимаем их 5 б.п., что соответсвует средним издержкам на хорошо ликвидных акциях выбранных нами. 
+
+```{r eval=FALSE}
+trading_data = trading_data[order(date,-total_rank)]
+number_op_positions = 4 # choose number of position 
+#pnl = trading_data[,mean(next_ret[1:number_op_positions]),by=date]
+trading_portfolio = trading_data[,list(symbol = symbol[1:number_op_positions],
+                   pnl = next_ret[1:number_op_positions]/number_op_positions,
+                   position = 1,
+                   total_rank = total_rank[1:number_op_positions]),by=date]
+
+# add cost for each day rebalancing
+full_date_symbol = expand.grid(date = unique(trading_portfolio$date),
+            symbol = unique(trading_portfolio$symbol))
+
+
+trading_portfolio = merge(trading_portfolio,full_date_symbol,all = T,by=c('date','symbol'))
+trading_portfolio[is.na(position),position:=0]
+trading_portfolio[is.na(pnl),pnl:=0]
+trading_portfolio[,I_trade:= c(NA,diff(position)),by=symbol]
+trading_portfolio[is.na(I_trade),I_trade:=0]
+trading_portfolio$pnl = trading_portfolio$pnl - (0.05/100)*abs(trading_portfolio$I_trade)/number_op_positions
+ts_portf =  trading_portfolio[,sum(pnl),by='date']
+
+train_pnl = na.omit(xts(ts_portf$V1,order.by = as.Date(ts_portf$date)))
+charts.PerformanceSummary(train_pnl['2020/2022'],geometric = T)
+
+
+my_sharpe =  SharpeRatio.annualized(train_pnl['2020/2022'])
+my_calmar =  CalmarRatio(train_pnl['2020/2022'])
+my_return = Return.annualized(train_pnl['2020/2022'])
+my_sharpe
+my_calmar
+my_return
+
+```
+
+
+## 3. Оценка устойчивости и переобучения
+
+### 3.1 Альтернативная история
+
+Для оценки устойчивости стратегии к переобучению генерируются альтернативные ценновые траектории и индикаторные показатели для этих новых траекторий. Эти данные создаются с использованием случайно сгенерированных данных, которые имеют статистические характеристики, схожие с реальными данными - в основе подобного алгоритма лежит механизм [блок ресемплинга.](https://www.researchgate.net/publication/46515745_Maximum_Entropy_Bootstrap_for_Time_Series_The_meboot_R_Package). Построим 50 альтернативных сценариев развития цены, стохастика и медианного дисбаланса.
+
+```{r eval=FALSE}
+alternative_data = data.table()
+for(symbol in universe) {
+  alternative_data = rbind(alternative_data,
+                           getSymbols.Gigapack(symbol, field = 'close, stoch', type = 'tech', fake = T, reps = 10))
+  print(symbol)
+}
+```
+
+Также генерируются альтернативные данные AlgoPack для микроструктурных характеристик:
+```{r eval=FALSE}
+alternative_algopack = data.table()
+for(symbol in universe) {
+  alternative_algopack = rbind(alternative_algopack,
+                           getSymbols.Gigapack(symbol, field = 'imbalance_vol.median', type = 'candles', fake = T, reps = 10))
+  print(symbol)
+}
+```
+
+### 3.2 Тестирование стратегии на альтернативных данных
+
+Сгенерированные альтернативные данные объединяются и ранжируются по тому же механизму что и на реальных данных.
+
+```{r eval=FALSE}
+alternative_data = merge(alternative_data, alternative_algopack, by = c('date', 'symbol', 'sim'))
+alternative_data = alternative_data[order(symbol, sim, date)]
+alternative_data[, next_ret := shift(close / shift(close, 1) - 1, -1), by = 'symbol, sim']
+alternative_data[, imbalance_rank := frank(imbalance_vol.median), by = 'sim, date']
+alternative_data[, indicator_rank := frank(stoch), by = 'sim, date']
+alternative_data[, total_rank := imbalance_rank + indicator_rank, by = 'sim, date']
+alternative_data = alternative_data[order(sim, date, -total_rank)]
+alternative_data = na.omit(alternative_data)
+```
+
+### 3.3 Оценка стратегии на альтернативных данных
+Ровно по тому же признаку оценивается стратегия. только на альтернативных данных.
+
+```{r eval=FALSE}
+
+number_op_positions = 4 # choose number of position 
+#pnl = trading_data[,mean(next_ret[1:number_op_positions]),by=date]
+alternative_portfolio = alternative_data[,list(symbol = symbol[1:number_op_positions],
+                                       pnl = next_ret[1:number_op_positions]/number_op_positions,
+                                       position = 1,
+                                       total_rank = total_rank[1:number_op_positions]),by='sim,date']
+# add cost for each day rebalancing
+full_date_symbol = expand.grid(date = unique(alternative_portfolio$date),
+                               symbol = unique(alternative_portfolio$symbol),
+                               sim = unique(alternative_portfolio$sim))
+
+alternative_portfolio = merge(alternative_portfolio,full_date_symbol,all = T,by=c('date','symbol','sim'))
+
+alternative_portfolio[is.na(position),position:=0]
+alternative_portfolio[is.na(pnl),pnl:=0]
+alternative_portfolio[,I_trade:= c(NA,diff(position)),by='sim,date']
+alternative_portfolio[is.na(I_trade),I_trade:=0]
+
+alternative_portfolio$pnl = alternative_portfolio$pnl - (0.05/100)*abs(alternative_portfolio$I_trade)/number_op_positions
+#alt_results =  alternative_portfolio[as.Date(date)<'2023-01-01',sum(pnl),by='sim,date']
+alt_results =  alternative_portfolio[,sum(pnl),by='sim,date']
+
+```
+
+
+
+### 3.4 Сравнение торговых характеристик реального и альтернативного
+
+Формируется портфель и оцениваются торговые показатели  на альтернативных данных.
+
+```{r eval=FALSE}
+
+# (Продолжение кода)
+# ...
+
+alt_calmar = alt_results[, CalmarRatio(xts(V1, order.by = as.Date(date))), by = sim]
+alt_sharpe = alt_results[, SharpeRatio.annualized(xts(V1, order.by = as.Date(date))), by = sim]
+alt_return = alt_results[, Return.annualized(xts(V1, order.by = as.Date(date))), by = sim]
+library(ggplot2)
+
+ggplot(alt_return, aes(V1 * 100)) + geom_density(fill = 'blue', alpha = .2) + xlim(0, 100) + 
+  geom_vline(xintercept = 100 * sum(my_return, na.rm = T)) + labs(x = "Sum of PnL, %, 2020-01-01 - 2023-01-01")
+
+ggplot(alt_sharpe, aes(V1)) + geom_density(fill = 'green', alpha = .2) + xlim(0, 3) + 
+  geom_vline(xintercept = sum(my_sharpe, na.rm = T)) + labs(x = "Sharpe ratio, 2020-01-01 - 2023-01-01")
+
+ggplot(alt_calmar, aes(V1)) + geom_density(fill = 'red', alpha = .2) + xlim(0, 3) + 
+  geom_vline(xintercept = sum(my_calmar, na.rm = T)) + labs(x = "Calmar, 2020-01-01 - 2023-01-01")
+
+```
+
+Для сравнение гипотетических результатов стратегии (закрашенное распределение) с реальной характеристикой (черная вертикальная линия) используется следующие графики
+
+![Распределение среднегодовой доходности](distr_return.png)
+
+![Распределение коэффициента Шарпа](distr_sharpe.png)
+
+![Распределение коэффициента Кальмара](distr_calmar.png)
+
+
+
+Все реальные характеристики торговой стратегии лежат в границах распределений, что может свидетельствовать о том, что наша стратегия является робастной и не переобученной. Другими словами, оценка переобучения позволяет убедиться в том, что стратегия демонстрирует стабильность и эффективность не только на реальных данных, но и на сгенерированных, что является важным фактором при принятии решения о применении стратегии в реальных условиях рынка.
+
+### 3.5. Подводя итоги
+Таким образом в ходе данного исследования мы не просто разработали торговую стратегию на основе данных AlgoPack, но и продемонстрировали практический подход к оценке и отбору торговых стратегий. Альтернативные данные позволяют оценить степень достоверности и робастности торговых стратегий. Стратегия GigaMomentum получилась надежной стратегией которая устойчиво работает как на периоде обучения, так и на данных которых не было в рынке (чистый out of sample)
+
+
+![Динамика Giga Momentum и его гипотетических сценариев по сравнению с индексом ММВБ](total_pict.png)
+
+
