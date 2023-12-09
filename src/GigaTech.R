@@ -6,15 +6,6 @@ library(ClickHouseHTTP)
 library(data.table)
 
 
-
-path_ch = fread('https://storage.yandexcloud.net/alpha-data/dict/path_to_clickhouse.txt')
-old_con  = dbConnect(
-  ClickHouseHTTP(),
-  host = path_ch$value[1],
-  port = as.numeric(path_ch$value[2]),
-  user = path_ch$value[3],
-  password = path_ch$value[4],
-  https = TRUE)
 #ru candles
 data_eod = dbReadTable(old_con,'eod_ru')
 data_eod = data.table(data_eod)
