@@ -1,6 +1,6 @@
 
 
-########################  Alpha Stoic  ##################
+
 
 library(data.table)
 library(xts)
@@ -8,46 +8,41 @@ library(rusquant)
 library(ggplot2)
 library(gridExtra)
 library(telegram.bot)
-bot <- Bot(token = "")
+bot <- Bot(token = "telegram token")
 
-load(file = 'C:/Users/?????????????/YandexDisk/Trading/Alpha/Finam/symbol_list_FINAM.RData')
-a_universe = 
-alpha = getSymbols('NVTK',src='Rusquant',field = 'A1_L_P1',api.key = 'KDFJKSJ',market='ru',from=Sys.Date()-4,auto.assign = F)
-res = xts(alpha$pnl,order.by = as.Date(unique(alpha$date)))
-res[,1]= 0
-symbol='SBER'
-tinkoff_token = ''
-tinkoff_universe = data.table(getSymbolList(src = "tinkoff",api.key=tinkoff_token))
+##  get signals block
+#get universe
 
+moex_stock_universe = getSymbolList(src='moex')
+liquidity_universe = getSymbols.Gigapack(paste(moex_stock_universe$SECID,collapse = ','),date='2020-01-03',field = 'spread_bbo.q80',type = 'candles')
+liquidity_universe = liquidity_universe[spread_bbo.q80<10]
+universe = liquidity_universe$symbol
 
 
-for(alpha_name in a_universe[1:3])
-  {
-    alpha = getSymbols(symbol,src='Rusquant',field = alpha_name,api.key = 'KDFJKSJ',market='ru',from=Sys.Date()-4,auto.assign = F)
-     #plot(alpha$total,type='l')
-    alpha[,trade:=c(NA,diff(signal))]
-    #alpha$finam_com = (3.5/10000)*abs(alpha$trade)
-    alpha$pnl_wc = alpha$pnl-(3.5/10000)*abs(alpha$trade)
-    alpha[is.na(pnl_wc)]$pnl_wc = 0
-    alpha_signal = xts(alpha$signal,order.by = as.Date(alpha$date))
-    res = merge(res,alpha_signal)
-    names(res)[ncol(res)] = paste(symbol,alpha_name,sep = '_')
-  }
-res = res[,-1]
-res = res['2020-01-01/']
+# get data from technical indicators
+trading_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'stoch,close', type = 'tech')
+# get data from microstructure indicators
+algo_pack_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'imbalance_vol.median',type = 'candles')
+trading_data = merge(trading_data,algo_pack_data,by = c('date','symbol'))
 
-current_signals = tail(res,1)
-current_signals = data.table(symbol = substr(names(current_signals),1,4),signal = t(current_signals[1,]))
-names(current_signals)[2]='signal'
+trading_data[,imbalance_rank:=frank(imbalance_vol.median),by='date']
+trading_data[,indicator_rank:=frank(stoch),by='date']
+trading_data[,total_rank:=imbalance_rank+indicator_rank,by='date']
 
-signals = (current_signals[,p:=sum(signal),by='symbol'])
-signals = unique(signals[,.(symbol,p)])
+last_date = max(trading_data$date)
+trading_data = trading_data[date==last_date] # only today
+trading_data = trading_data[order(date,-total_rank)]
+current_signals = head(trading_data,4) # only first 4 position
+current_signals$p = 0.25
+signals = unique(current_signals[,.(symbol,p)])
+
+##
+
 print(signals)
 
 ##### trading logic ###
 finam_account = ''
-finam_token = '='
-
+finam_token = ''
 
 #get portfolio info
 finam_portfolio = getPortfolio(src = 'Finam',api.key = finam_token,clientId = finam_account)
@@ -67,8 +62,9 @@ if(!exists('symbol_list_FINAM')) getSymbolList(src = 'Finam',auto.assign = TRUE)
 for(i in 1:nrow(trade_positions))
 {
   trade_symbol = trade_positions$symbol[i]
-  ob_raw = getOrderbook(tinkoff_universe[ticker == trade_symbol]$figi ,depth = 10,src = "tinkoff",api.key=tinkoff_token)
-  last_price = (as.numeric(ob_raw$lastPrice$units) + as.numeric(ob_raw$lastPrice$nano)/1000000000)
+  last_price = try(tail((getSymbols(trade_symbol,src='Finam',period = '1min',from=Sys.Date()-2,auto.assign = F))[,4],1),silent = T)
+  if(class(last_price)[1] == "try-error")
+    last_price = try(tail((getSymbols(trade_symbol,src='Moex',period = '1min',from=Sys.Date()-2,auto.assign = F)[,2]),1),silent = T)
   trade_positions$size[i] = abs(as.numeric(round(trade_positions$position_per_symbol[i]/(trade_positions$lotSize[i]*last_price))))
   trade_positions$price[i] = abs(as.numeric(last_price))
 }
@@ -100,25 +96,23 @@ change_portfolio = change_portfolio[order(trade_size)]
 print(change_portfolio)
 
 
-
-
-png("positions.png", height = 600, width = 1400)
+png("strategy_positions.png", height = 600, width = 1400)
 grid.table(change_portfolio)
 dev.off()
 
 
-bot$sendPhoto(1231321321,
-              photo = "positions.png",caption = paste('positions',Sys.Date()))
-
-
+bot$sendPhoto(128937981723,
+              photo = "strategy_positions.png",caption = paste('Strategy',Sys.Date()))
 
 
 #change positions
 for(i in 1:nrow(change_portfolio))
 {
   trade_symbol = change_portfolio$symbol[i]
-  ob_raw = getOrderbook(tinkoff_universe[ticker == trade_symbol]$figi ,depth = 10,src = "tinkoff",api.key=tinkoff_token)
-  last_price = (as.numeric(ob_raw$lastPrice$units) + as.numeric(ob_raw$lastPrice$nano)/1000000000)
+  last_price = try(tail((getSymbols.Finam(trade_symbol,period = '1min',
+                                          from=Sys.Date()-2))[,4],1),silent = T)
+  if(class(last_price)[1] == "try-error")
+    last_price = try(tail((getSymbols(trade_symbol,src='Moex',period = '1min',from=Sys.Date()-2,auto.assign = F)[,2]),1),silent = T)
   size_order = abs(as.numeric(change_portfolio$trade_size[i]))
   trade_side = ifelse(change_portfolio$trade_size[i]>0,'Buy','Sell')
   board = change_portfolio$board[i]
@@ -136,7 +130,6 @@ for(i in 1:nrow(change_portfolio))
   }
 }
 
-Sys.sleep(10)
 # order routing logic
 my_orders = getOrders(src = 'finam',api.key = finam_token,clientId = finam_account)$orders
 print(my_orders)
@@ -170,9 +163,6 @@ while(nrow(my_orders[my_orders$status=='Active',])!=0)
   Sys.sleep(10)
   my_orders = getOrders(src = 'finam',api.key = finam_token,clientId = finam_account)$orders
 }
-
-
-
 
 
 
