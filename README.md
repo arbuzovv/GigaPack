@@ -48,8 +48,8 @@ GigaPack имеет микросервисную архитектуру и ис�
 
 Для взаимодействия с сервисом был разработан 
 + [REST API](http://swagger.rusquant.io) и использующие его
-+ библиотеки rusquant на [R](https://github.com/arbuzovv/rusquant/)
-+ библиотеки pyrusquant на [Python](https://github.com/arbuzovv/pyrusquant)
++ [rusquant](https://github.com/arbuzovv/rusquant/) библиотека для R
++ [pyrusquant](https://github.com/arbuzovv/pyrusquant) библиотека для Python
 + [вэб портал на Shiny](http://gigapack.shinyapps.io/main//) - позволяющий визуализировать гигасвечи и разнообразные микроструктурные эффекты.
 
 ![Alt text](img/architecture.png "Архитекрута GigaPack")
