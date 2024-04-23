@@ -22,11 +22,14 @@ universe = liquidity_universe$symbol
 
 ###### get real data ##########
 # get data from technical indicators
-trading_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'stoch,close', type = 'tech')
+trading_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'close')
 # get data from microstructure indicators
-algo_pack_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'disb.median',type = 'candles')
+tech_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'stoch')
+# get data from microstructure indicators
+algo_pack_data = getSymbols.Gigapack(paste(universe,collapse = ','),field = 'imbalance_vol.median')
 
 # merge data
+trading_data = merge(trading_data,tech_data,by = c('date','symbol'))
 trading_data = merge(trading_data,algo_pack_data,by = c('date','symbol'))
 trading_data[,next_ret:=shift(close/shift(close,1)-1,-1),by='symbol']
 trading_data[,imbalance_rank:=frank(imbalance_vol.median),by='date']
@@ -57,7 +60,7 @@ trading_portfolio$pnl = trading_portfolio$pnl - (0.05/100)*abs(trading_portfolio
 ts_portf =  trading_portfolio[,sum(pnl),by='date']
 
 train_pnl = na.omit(xts(ts_portf$V1,order.by = as.Date(ts_portf$date)))
-charts.PerformanceSummary(train_pnl['2020/2022'],geometric = T)
+charts.PerformanceSummary(train_pnl['2020-01-01/'],geometric = T)
 
 
 my_sharpe =  SharpeRatio.annualized(train_pnl['2020/2022'])
@@ -72,7 +75,7 @@ alternative_data = data.table()
 for(symbol in universe)
 {
   alternative_data = rbind(alternative_data,
-                           getSymbols.Gigapack(symbol,field = 'close,stoch' ,type = 'tech',fake = T,reps = 20))
+                           getSymbols.Gigapack(symbol,field = 'close' ,type == "candles",fake = T,reps = 20))
   print(symbol)
 }
 # algopack data
